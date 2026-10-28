@@ -81,6 +81,16 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
   const [isSubmittingTest, setIsSubmittingTest] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState<{ type: 'success' | 'error' | 'pending'; message: string; test?: SigmaTestRequest } | null>(null);
 
+  // In-UI Toast Notification banner (replaces window.alert)
+  const [toastNotification, setToastNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  const showToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
+    setToastNotification({ type, message });
+    setTimeout(() => {
+      setToastNotification(prev => (prev?.message === message ? null : prev));
+    }, 5000);
+  }, []);
+
   // View Credentials Modal
   const [selectedTestForCredentials, setSelectedTestForCredentials] = useState<SigmaTestRequest | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -109,13 +119,13 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
         SigmaClient.getCompanySettings(currentUser),
       ]);
       setConfig(cfg);
-      setTestRequests(reqs);
-      setCompanySettings(compSttgs);
+      setTestRequests(reqs || []);
+      setCompanySettings(compSttgs || []);
 
       // Pre-select defaults
-      if (cfg.defaultServerId) setSelectedServerId(cfg.defaultServerId);
-      if (cfg.defaultPackageId) setSelectedPackageId(cfg.defaultPackageId);
-      if (cfg.defaultTrialHours) setSelectedTrialHours(cfg.defaultTrialHours);
+      if (cfg?.defaultServerId) setSelectedServerId(cfg.defaultServerId);
+      if (cfg?.defaultPackageId) setSelectedPackageId(cfg.defaultPackageId);
+      if (cfg?.defaultTrialHours) setSelectedTrialHours(cfg.defaultTrialHours);
     } catch (err) {
       console.warn('Error loading Sigma data:', err);
     } finally {
@@ -132,18 +142,21 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
         SigmaClient.getServers(currentUser),
         SigmaClient.getPackages(currentUser),
       ]);
-      setServers(srvs);
-      setPackages(pkgs);
+      setServers(srvs || []);
+      setPackages(pkgs || []);
 
-      if (!selectedServerId && srvs.length > 0) {
+      if (!selectedServerId && srvs && srvs.length > 0) {
         setSelectedServerId(srvs[0].id);
+      }
+      if (!selectedPackageId && pkgs && pkgs.length > 0) {
+        setSelectedPackageId(pkgs[0].id);
       }
     } catch (err) {
       console.warn('Error loading Sigma catalogs:', err);
     } finally {
       setLoadingCatalogs(false);
     }
-  }, [config?.hasToken, currentUser, selectedServerId]);
+  }, [config?.hasToken, currentUser, selectedServerId, selectedPackageId]);
 
   useEffect(() => {
     loadData();
@@ -258,24 +271,30 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
     if (isSubmittingTest) return;
 
     if (!testClientName.trim()) {
-      alert('Por favor, informe o nome do cliente.');
+      setSubmissionFeedback({
+        type: 'error',
+        message: 'Por favor, informe o nome do cliente.',
+      });
       return;
     }
     if (!testClientWhatsApp.trim() || testClientWhatsApp.replace(/\D/g, '').length < 8) {
-      alert('Por favor, informe um WhatsApp válido para entrega do teste.');
+      setSubmissionFeedback({
+        type: 'error',
+        message: 'Por favor, informe um WhatsApp válido com DDD para entrega do teste.',
+      });
       return;
     }
-    if (!selectedServerId || !selectedPackageId) {
-      alert('Por favor, selecione um Servidor e um Pacote.');
-      return;
-    }
+
+    // Determine effective Server and Package IDs gracefully
+    const effectiveServerId = selectedServerId || (servers.length > 0 ? String(servers[0].id) : 'srv-default');
+    const effectivePackageId = selectedPackageId || (filteredPackages.length > 0 ? String(filteredPackages[0].id) : (packages.length > 0 ? String(packages[0].id) : 'pkg-default'));
 
     setIsSubmittingTest(true);
     setSubmissionFeedback(null);
 
-    const srv = servers.find(s => String(s.id) === String(selectedServerId));
-    const pkg = packages.find(p => String(p.id) === String(selectedPackageId));
-    const targetCompId = isMasterOwner ? (selectedCompanyId || 'company-matriz-01') : currentUser?.companyId;
+    const srv = (servers || []).find(s => String(s.id) === String(effectiveServerId));
+    const pkg = (packages || []).find(p => String(p.id) === String(effectivePackageId));
+    const targetCompId = isMasterOwner ? (selectedCompanyId || (companies && companies[0]?.id) || 'company-matriz-01') : currentUser?.companyId;
 
     try {
       const res = await SigmaClient.createTestRequest(currentUser, {
@@ -283,9 +302,9 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
         clientWhatsApp: testClientWhatsApp.trim(),
         clientEmail: testClientEmail.trim() || undefined,
         clientNotes: testClientNotes.trim() || undefined,
-        serverId: selectedServerId,
+        serverId: effectiveServerId,
         serverName: srv?.name || 'Servidor Sigma',
-        packageId: selectedPackageId,
+        packageId: effectivePackageId,
         packageName: pkg?.name || 'Pacote Teste',
         trialHours: selectedTrialHours,
         companyId: targetCompId,
@@ -299,12 +318,14 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
           test: created,
         });
         setSelectedTestForCredentials(created);
+        showToast('success', `Teste de ${created.clientName} gerado com sucesso no Sigma!`);
       } else if (created.approvalStatus === 'pendente_aprovacao') {
         setSubmissionFeedback({
           type: 'pending',
           message: 'Solicitação registrada! Aguardando aprovação do Master Owner.',
           test: created,
         });
+        showToast('info', `Solicitação de teste para ${created.clientName} enviada para aprovação.`);
       } else {
         setSubmissionFeedback({
           type: 'error',
@@ -315,10 +336,12 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
 
       await loadData();
     } catch (err: any) {
+      const errorMsg = typeof err === 'string' ? err : (err?.message || (typeof err?.error === 'string' ? err.error : 'Falha ao processar solicitação de teste.'));
       setSubmissionFeedback({
         type: 'error',
-        message: err.message || 'Falha ao processar solicitação de teste.',
+        message: String(errorMsg),
       });
+      showToast('error', String(errorMsg));
     } finally {
       setIsSubmittingTest(false);
     }
@@ -329,12 +352,12 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
     if (!testToApprove || isProcessingApproval) return;
     setIsProcessingApproval(true);
     try {
-      const res = await SigmaClient.approveTestRequest(currentUser, testToApprove.id);
-      alert(`Teste de ${testToApprove.clientName} aprovado e gerado com sucesso no Sigma!`);
+      await SigmaClient.approveTestRequest(currentUser, testToApprove.id);
+      showToast('success', `Teste de ${testToApprove.clientName} aprovado e gerado com sucesso no Sigma!`);
       setTestToApprove(null);
       await loadData();
     } catch (err: any) {
-      alert(`Falha ao aprovar teste: ${err.message}`);
+      showToast('error', `Falha ao aprovar teste: ${err.message || 'Erro desconhecido'}`);
     } finally {
       setIsProcessingApproval(false);
     }
@@ -346,12 +369,12 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
     setIsProcessingApproval(true);
     try {
       await SigmaClient.rejectTestRequest(currentUser, testToReject.id, rejectReason);
-      alert(`Solicitação de ${testToReject.clientName} recusada.`);
+      showToast('info', `Solicitação de ${testToReject.clientName} recusada.`);
       setTestToReject(null);
       setRejectReason('');
       await loadData();
     } catch (err: any) {
-      alert(`Falha ao recusar solicitação: ${err.message}`);
+      showToast('error', `Falha ao recusar solicitação: ${err.message || 'Erro desconhecido'}`);
     } finally {
       setIsProcessingApproval(false);
     }
@@ -361,10 +384,10 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
   const handleReconcileTest = async (testId: string) => {
     try {
       const res = await SigmaClient.reconcileTestRequest(currentUser, testId);
-      alert(res.message);
+      showToast('info', res.message || 'Reconciliação concluída.');
       await loadData();
     } catch (err: any) {
-      alert(`Falha na reconciliação: ${err.message}`);
+      showToast('error', `Falha na reconciliação: ${err.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -384,11 +407,11 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
         notes: editNotes,
       });
 
-      alert(`Regras da empresa ${editingCompany.tradeName} salvas com sucesso!`);
+      showToast('success', `Regras da empresa ${editingCompany.tradeName} salvas com sucesso!`);
       setEditingCompany(null);
       await loadData();
     } catch (err: any) {
-      alert(`Erro ao salvar regras: ${err.message}`);
+      showToast('error', `Erro ao salvar regras: ${err.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -431,6 +454,9 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
           <button
             onClick={() => {
               setSubmissionFeedback(null);
+              if (!selectedServerId && servers.length > 0) setSelectedServerId(String(servers[0].id));
+              if (!selectedPackageId && packages.length > 0) setSelectedPackageId(String(packages[0].id));
+              if (!selectedCompanyId && (companies || []).length > 0) setSelectedCompanyId(companies[0].id);
               setIsNewTestModalOpen(true);
             }}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-sm rounded-xl transition-all shadow-lg shadow-cyan-500/20 active:scale-95"
@@ -440,6 +466,31 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
           </button>
         </div>
       </div>
+
+      {/* Floating In-UI Toast Notification */}
+      {toastNotification && (
+        <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 transition-all ${
+          toastNotification.type === 'success'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : toastNotification.type === 'error'
+            ? 'bg-red-500/10 border-red-500/30 text-red-300'
+            : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+        }`}>
+          <div className="flex items-center gap-2">
+            {toastNotification.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />}
+            {toastNotification.type === 'error' && <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />}
+            {toastNotification.type === 'info' && <Info className="w-5 h-5 text-blue-400 shrink-0" />}
+            <span className="text-sm font-semibold">{toastNotification.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastNotification(null)}
+            className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800/60"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
 
       {/* Navigation Sub-Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
@@ -602,7 +653,7 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
                   className="bg-slate-950/60 border border-slate-800 rounded-lg text-xs text-slate-300 py-2 px-3 focus:outline-none focus:border-cyan-500"
                 >
                   <option value="todas">Todas as Empresas</option>
-                  {companies.map(c => (
+                  {(companies || []).map(c => (
                     <option key={c.id} value={c.id}>{c.tradeName}</option>
                   ))}
                 </select>
@@ -915,7 +966,7 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {companies.map(comp => {
+                  {(companies || []).map(comp => {
                     const setting = companySettings.find(s => s.companyId === comp.id);
                     const autoApproval = setting ? setting.autoApproval : (comp.id === 'company-matriz-01');
                     const maxDaily = setting?.maxDailyTests ?? (comp.id === 'company-matriz-01' ? 50 : 10);
@@ -1141,6 +1192,18 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
           </div>
         ) : (
           <form onSubmit={handleSubmitNewTest} className="space-y-4">
+            {!config?.hasToken && (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-amber-200">Configuração da API Sigma Pendente no Servidor</p>
+                  <p className="text-amber-300/90 leading-relaxed">
+                    A credencial <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">SIGMA_API_TOKEN</code> não foi definida no Cloud Run. O teste será registrado e validará regras, mas a ativação externa dependerá da chave.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {submissionFeedback?.type === 'pending' && (
               <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
                 <Clock className="w-4 h-4 text-amber-400 shrink-0" />
@@ -1161,11 +1224,11 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
                   Empresa Parceira Responsável:
                 </label>
                 <select
-                  value={selectedCompanyId}
+                  value={selectedCompanyId || ((companies && companies[0]?.id) || 'company-matriz-01')}
                   onChange={e => setSelectedCompanyId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
                 >
-                  {companies.map(c => (
+                  {(companies || []).map(c => (
                     <option key={c.id} value={c.id}>
                       {c.tradeName} ({c.code})
                     </option>
@@ -1208,7 +1271,7 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
                   Servidor <span className="text-red-400">*</span>:
                 </label>
                 <select
-                  value={selectedServerId}
+                  value={selectedServerId || (servers.length > 0 ? String(servers[0].id) : 'srv-default')}
                   onChange={e => setSelectedServerId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
                 >
@@ -1227,7 +1290,7 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
                   Pacote <span className="text-red-400">*</span>:
                 </label>
                 <select
-                  value={selectedPackageId}
+                  value={selectedPackageId || (filteredPackages.length > 0 ? String(filteredPackages[0].id) : (packages.length > 0 ? String(packages[0].id) : 'pkg-default'))}
                   onChange={e => setSelectedPackageId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
                 >

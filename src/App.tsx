@@ -22,6 +22,7 @@ import { ReportsView } from './components/reports/ReportsView.tsx';
 import { SettingsView } from './components/settings/SettingsView.tsx';
 import { AuditView } from './components/audit/AuditView.tsx';
 import { SigmaView } from './components/sigma/SigmaView.tsx';
+import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
 import {
   Customer,
   Plan,
@@ -220,7 +221,9 @@ const MainLayout: React.FC = () => {
           )}
 
           {currentTab === 'sigma' && (
-            <SigmaView companies={companies} />
+            <ErrorBoundary fallbackTitle="Erro ao carregar o módulo Sigma / IPTV">
+              <SigmaView companies={companies || []} />
+            </ErrorBoundary>
           )}
 
           {currentTab === 'companies' && (

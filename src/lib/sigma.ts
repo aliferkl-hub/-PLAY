@@ -230,20 +230,25 @@ export class SigmaClient {
    * Builds formatted WhatsApp delivery message for customer credentials
    */
   public static generateWhatsAppShareLink(test: SigmaTestRequest): string {
-    const cleanPhone = sanitizePhoneForWhatsApp(test.clientWhatsApp);
+    const cleanPhone = sanitizePhoneForWhatsApp(test?.clientWhatsApp);
+    const clientName = test?.clientName || 'Cliente';
 
-    let text = `🚀 Olá, *${test.clientName}*! Seu teste *ONNIX PLAY* está pronto!\n\n`;
+    let text = `🚀 Olá, *${clientName}*! Seu teste *ONNIX PLAY* está pronto!\n\n`;
     text += `📺 *Dados de Acesso:*\n`;
-    if (test.externalUsername) text += `👤 *Usuário:* ${test.externalUsername}\n`;
-    if (test.externalPassword) text += `🔑 *Senha:* ${test.externalPassword}\n`;
-    if (test.externalExpiresAt) {
-      const expDate = new Date(test.externalExpiresAt);
-      text += `⏰ *Validade:* ${expDate.toLocaleString('pt-BR')}\n`;
+    if (test?.externalUsername) text += `👤 *Usuário:* ${test.externalUsername}\n`;
+    if (test?.externalPassword) text += `🔑 *Senha:* ${test.externalPassword}\n`;
+    if (test?.externalExpiresAt) {
+      try {
+        const expDate = new Date(test.externalExpiresAt);
+        text += `⏰ *Validade:* ${expDate.toLocaleString('pt-BR')}\n`;
+      } catch {
+        // ignore date parse error
+      }
     }
-    if (test.externalM3uUrl || test.externalM3uShortUrl) {
+    if (test?.externalM3uUrl || test?.externalM3uShortUrl) {
       text += `🔗 *Lista M3U:* ${test.externalM3uShortUrl || test.externalM3uUrl}\n`;
     }
-    if (test.externalPlaylist) {
+    if (test?.externalPlaylist) {
       text += `📋 *Playlist:* ${test.externalPlaylist}\n`;
     }
 

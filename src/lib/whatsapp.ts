@@ -5,9 +5,9 @@
 
 import { formatBRL, formatBrDate } from './date.ts';
 
-export function sanitizePhoneForWhatsApp(phone: string): string {
-  // Strip non-digits
-  let cleaned = phone.replace(/\D/g, '');
+export function sanitizePhoneForWhatsApp(phone?: string | null): string {
+  // Strip non-digits safely
+  let cleaned = (phone || '').replace(/\D/g, '');
   // Default to Brazil country code 55 if not present
   if (cleaned.length === 10 || cleaned.length === 11) {
     cleaned = '55' + cleaned;

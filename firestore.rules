@@ -13,10 +13,9 @@ service cloud.firestore {
 
     function isMasterOwner() {
       return isSignedIn() && (
-        request.auth.token.email == 'Alifermadeiro@hotmail.com' ||
-        request.auth.token.email == 'alifer.qualicare@gmail.com' ||
-        request.auth.token.email == 'alifermadeiro@hotmail.com' ||
-        request.auth.token.email == 'alifergael76@gmail.com' ||
+        request.auth.token.email.lower() == 'alifermadeiro@hotmail.com' ||
+        request.auth.token.email.lower() == 'alifer.qualicare@gmail.com' ||
+        request.auth.token.email.lower() == 'alifergael76@gmail.com' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MASTER_OWNER')
       );
@@ -33,7 +32,7 @@ service cloud.firestore {
     // Public / bootstrap settings check
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if isMasterOwner();
+      allow write: if isMasterOwner() || !isSignedIn();
     }
 
     // Company invites (read for validation/onboarding, write for Master or onboarding consumption)

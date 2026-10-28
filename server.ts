@@ -9,13 +9,15 @@ import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import path from 'path';
 import { defaultSigmaService, SigmaService, SigmaApiError } from './src/server/sigma-service.ts';
-import { DatabaseService, DEFAULT_SIGMA_CONFIG, MASTER_EMAILS } from './src/lib/db.ts';
+import { DatabaseService, DEFAULT_SIGMA_CONFIG, DEFAULT_MASTER_EMAIL, ALT_MASTER_EMAIL, MASTER_EMAILS } from './src/lib/db.ts';
 import { SigmaTestRequest, SigmaCompanySettings, UserRole } from './src/types/index.ts';
+
+import fs from 'fs';
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 app.use(express.json());
@@ -56,7 +58,8 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   // 1. Check if Master Owner
   const isMaster =
     MASTER_EMAILS.some((m) => m.toLowerCase() === email) ||
-    requestedRole === 'MASTER_OWNER';
+    email === DEFAULT_MASTER_EMAIL.toLowerCase() ||
+    email === ALT_MASTER_EMAIL.toLowerCase();
 
   if (isMaster) {
     req.user = {
@@ -819,7 +822,8 @@ app.post('/api/sigma/tests/:id/reconcile', authMiddleware, async (req: Request, 
 // ==========================================
 
 async function startServer() {
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isCloudRun = Boolean(process.env.K_SERVICE);
+  const isProduction = process.env.NODE_ENV === 'production' || isCloudRun;
 
   if (!isProduction) {
     const vite = await createViteServer({
@@ -829,6 +833,9 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
+    if (!fs.existsSync(distPath)) {
+      console.warn(`[ONNIX PLAY] Warning: dist/ directory not found at ${distPath}`);
+    }
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
@@ -836,7 +843,7 @@ async function startServer() {
   }
 
   app.listen(PORT, HOST, () => {
-    console.log(`[ONNIX PLAY] Server running at http://${HOST}:${PORT}`);
+    console.log(`[ONNIX PLAY] Server running at http://${HOST}:${PORT} (mode: ${isProduction ? 'production' : 'development'})`);
   });
 }
 

@@ -5,7 +5,8 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { signInWithPopup, signOut as fbSignOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { auth, googleAuthProvider } from '../lib/firebase.ts';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, googleAuthProvider, db } from '../lib/firebase.ts';
 import {
   UserProfile,
   EmployeeProfile,
@@ -34,7 +35,7 @@ interface AuthContextType {
   canAccessBranch: (branchId?: string, companyId?: string) => boolean;
   hasPermission: (permission: PermissionKey) => boolean;
   loginWithGoogle: () => Promise<void>;
-  loginMasterWithPassword: (password: string, code2fa?: string) => Promise<{ success: boolean; error?: string }>;
+  loginMasterWithPassword: (password: string, code2fa?: string, email?: string) => Promise<{ success: boolean; error?: string }>;
   loginCompanyWithPassword: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   loginBranchUserWithPassword: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   loginEmployeeWithCredentials: (email: string, passOrPhone: string) => Promise<{ success: boolean; error?: string }>;
@@ -48,7 +49,7 @@ interface AuthContextType {
     password: string
   ) => Promise<{ success: boolean; requiresApproval?: boolean; error?: string }>;
   resetPasswordWithToken: (email: string, token: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
-  setupMasterOwnerPassword: (password: string, securityAnswer?: string) => Promise<{ success: boolean; error?: string }>;
+  setupMasterOwnerPassword: (password: string, securityAnswer?: string, email?: string) => Promise<{ success: boolean; error?: string }>;
   toggleTwoFactor: (enabled: boolean) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -105,7 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (isMaster) {
               const masterProfile: UserProfile = {
                 uid: fbUser.uid,
-                email: fbUser.email || DEFAULT_MASTER_EMAIL,
+                email: email || DEFAULT_MASTER_EMAIL.toLowerCase(),
                 displayName: fbUser.displayName || 'Master Owner',
                 role: 'MASTER_OWNER',
                 status: 'ativo',
@@ -114,6 +115,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               };
               setCurrentUser(masterProfile);
               localStorage.setItem('onnix_active_session', JSON.stringify(masterProfile));
+
+              // Persist master user profile into users collection for firestore rules compatibility
+              try {
+                await setDoc(doc(db, 'users', fbUser.uid), {
+                  uid: fbUser.uid,
+                  email: masterProfile.email,
+                  displayName: masterProfile.displayName,
+                  role: 'MASTER_OWNER',
+                  status: 'ativo',
+                  lastLogin: new Date().toISOString(),
+                }, { merge: true });
+              } catch (e) {
+                console.warn('Could not persist master user to Firestore users collection:', e);
+              }
+
               await DatabaseService.logAudit(
                 masterProfile.email,
                 'LOGIN_GOOGLE_MASTER',
@@ -445,18 +461,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const setupMasterOwnerPassword = async (password: string, securityAnswer?: string): Promise<{ success: boolean; error?: string }> => {
+  const setupMasterOwnerPassword = async (password: string, securityAnswer?: string, email?: string): Promise<{ success: boolean; error?: string }> => {
     if (!password || password.length < 8) {
       return { success: false, error: 'A senha do Master Owner deve possuir pelo menos 8 caracteres.' };
     }
 
+    const targetEmail = (email || DEFAULT_MASTER_EMAIL).trim().toLowerCase();
     try {
       const salt = generateSalt();
       const passwordHash = await hashPassword(password, salt);
       const answerHash = securityAnswer ? await hashPassword(securityAnswer.trim().toLowerCase(), salt) : undefined;
 
       const creds: MasterOwnerCredentials = {
-        email: DEFAULT_MASTER_EMAIL,
+        email: targetEmail,
         passwordHash,
         salt,
         isConfigured: true,
@@ -471,7 +488,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Auto login as Master Owner
       const profile: UserProfile = {
         uid: 'master-owner-uid',
-        email: DEFAULT_MASTER_EMAIL,
+        email: targetEmail,
         displayName: 'Master Owner (ONNIX PLAY)',
         role: 'MASTER_OWNER',
         status: 'ativo',
@@ -491,21 +508,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const loginMasterWithPassword = async (password: string, code2fa?: string): Promise<{ success: boolean; error?: string }> => {
-    let creds = masterCredentials;
+  const loginMasterWithPassword = async (password: string, code2fa?: string, email?: string): Promise<{ success: boolean; error?: string }> => {
+    const targetEmail = (email || DEFAULT_MASTER_EMAIL).trim().toLowerCase();
+    let creds = await DatabaseService.getMasterOwnerCredentials(targetEmail);
     if (!creds) {
-      creds = await DatabaseService.getMasterOwnerCredentials();
+      creds = masterCredentials;
+    } else {
       setMasterCredentials(creds);
     }
 
-    if (!creds || !creds.isConfigured) {
-      return { success: false, error: 'A conta Master Owner ainda não configurou uma senha. Realize o primeiro acesso.' };
+    if (!creds || !creds.isConfigured || !creds.passwordHash || !creds.salt) {
+      return { success: false, error: 'A conta Master Owner ainda não configurou uma senha neste ambiente. Realize o primeiro acesso.' };
     }
 
     const isValid = await verifyPassword(password, creds.salt, creds.passwordHash);
     if (!isValid) {
       await DatabaseService.logAudit(
-        DEFAULT_MASTER_EMAIL,
+        targetEmail,
         'LOGIN_FALHA_SENHA_MASTER',
         'auth',
         'master_owner',
@@ -520,7 +539,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const profile: UserProfile = {
       uid: 'master-owner-uid',
-      email: DEFAULT_MASTER_EMAIL,
+      email: targetEmail,
       displayName: 'Master Owner (ONNIX PLAY)',
       role: 'MASTER_OWNER',
       status: 'ativo',

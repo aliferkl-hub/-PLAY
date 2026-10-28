@@ -466,7 +466,7 @@ export class DatabaseService {
   }
 
   // Master Owner Security Credentials
-  static async getMasterOwnerCredentials(): Promise<MasterOwnerCredentials | null> {
+  static async getMasterOwnerCredentials(email?: string): Promise<MasterOwnerCredentials | null> {
     try {
       const snap = await getDoc(doc(db, 'settings', 'master_owner_creds'));
       if (snap.exists()) {
@@ -477,17 +477,76 @@ export class DatabaseService {
     } catch (e) {
       console.warn('Fallback to cached master creds:', e);
     }
+
+    // Also check user_credentials collection if email provided or for known master emails
+    const emailsToCheck = email
+      ? [email]
+      : [DEFAULT_MASTER_EMAIL, ALT_MASTER_EMAIL, ...MASTER_EMAILS];
+
+    for (const em of emailsToCheck) {
+      const clean = em.trim().toLowerCase();
+      const docKey = normalizeEmailKey(clean);
+      try {
+        const userCredSnap = await getDoc(doc(db, 'user_credentials', docKey));
+        if (userCredSnap.exists()) {
+          const uCred = userCredSnap.data() as UserCredentials;
+          if (uCred.role === 'MASTER_OWNER' && uCred.isPasswordSet && uCred.passwordHash && uCred.salt) {
+            const masterCreds: MasterOwnerCredentials = {
+              email: uCred.email,
+              passwordHash: uCred.passwordHash,
+              salt: uCred.salt,
+              isConfigured: true,
+              configuredAt: uCred.updatedAt,
+            };
+            setLocalCache('master_owner_creds', masterCreds);
+            return masterCreds;
+          }
+        }
+      } catch (err) {
+        console.warn('Error reading master user_credentials:', err);
+      }
+    }
+
     return getLocalCache<MasterOwnerCredentials | null>('master_owner_creds', null);
   }
 
   static async saveMasterOwnerCredentials(creds: MasterOwnerCredentials): Promise<void> {
-    setLocalCache('master_owner_creds', creds);
+    const cleanEmail = creds.email.trim().toLowerCase();
+    const docKey = normalizeEmailKey(cleanEmail);
+    const toSave: MasterOwnerCredentials = {
+      ...creds,
+      email: cleanEmail,
+      isConfigured: true,
+      configuredAt: creds.configuredAt || new Date().toISOString(),
+    };
+
+    setLocalCache('master_owner_creds', toSave);
     try {
-      await setDoc(doc(db, 'settings', 'master_owner_creds'), creds);
+      await setDoc(doc(db, 'settings', 'master_owner_creds'), cleanForFirestore(toSave));
     } catch (e) {
       console.warn('Could not write master creds to Firestore:', e);
     }
-    await this.logAudit(creds.email, 'MASTER_OWNER_CONFIGURADO', 'master_owner', creds.email, 'Credenciais e senha forte salvas');
+
+    // Also persist in user_credentials for multi-email master resolution
+    try {
+      const userCred: UserCredentials = {
+        email: cleanEmail,
+        passwordHash: toSave.passwordHash,
+        salt: toSave.salt,
+        role: 'MASTER_OWNER',
+        name: 'Master Owner',
+        status: 'ativo',
+        isPasswordSet: true,
+        createdAt: toSave.configuredAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'user_credentials', docKey), cleanForFirestore(userCred));
+      setLocalCache(`user_creds_${docKey}`, userCred);
+    } catch (e) {
+      console.warn('Could not write master to user_credentials:', e);
+    }
+
+    await this.logAudit(toSave.email, 'MASTER_OWNER_CONFIGURADO', 'master_owner', toSave.email, 'Credenciais e senha forte salvas');
   }
 
   // ==========================================
@@ -1318,6 +1377,56 @@ export class DatabaseService {
     password: string
   ): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
     const cleanEmail = email.trim().toLowerCase();
+
+    // 0. Check if email belongs to Master Owner
+    const isMaster =
+      MASTER_EMAILS.some(m => m.toLowerCase() === cleanEmail) ||
+      cleanEmail === DEFAULT_MASTER_EMAIL.toLowerCase() ||
+      cleanEmail === ALT_MASTER_EMAIL.toLowerCase();
+
+    if (isMaster) {
+      const masterCreds = await this.getMasterOwnerCredentials(cleanEmail);
+      if (!masterCreds || !masterCreds.isConfigured || !masterCreds.passwordHash || !masterCreds.salt) {
+        return {
+          success: false,
+          error:
+            'A conta Master Owner ainda não configurou sua senha de segurança. Acesse a aba "Master Owner" para realizar o primeiro acesso.',
+        };
+      }
+
+      const isPasswordValid = await verifyPassword(password, masterCreds.salt, masterCreds.passwordHash);
+      if (!isPasswordValid) {
+        await this.logAudit(
+          cleanEmail,
+          'LOGIN_FALHA_SENHA_MASTER',
+          'auth',
+          'master_owner',
+          'Tentativa de login com senha incorreta para Master Owner'
+        );
+        return { success: false, error: 'Senha incorreta para a conta Master Owner.' };
+      }
+
+      const profile: UserProfile = {
+        uid: 'master-owner-uid',
+        email: cleanEmail,
+        displayName: 'Master Owner (ONNIX PLAY)',
+        role: 'MASTER_OWNER',
+        status: 'ativo',
+        isTwoFactorEnabled: masterCreds.twoFactorEnabled,
+        createdAt: masterCreds.configuredAt || new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+      };
+
+      await this.logAudit(
+        cleanEmail,
+        'LOGIN_SENHA_MASTER',
+        'users',
+        profile.uid,
+        'Master Owner autenticado com sucesso'
+      );
+
+      return { success: true, user: profile };
+    }
 
     // 1. Check if email belongs to a Partner Company
     const companies = await this.getCompanies();
