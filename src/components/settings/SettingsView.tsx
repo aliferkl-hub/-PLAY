@@ -14,6 +14,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onRefresh 
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [isSaving, setIsSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [companyError, setCompanyError] = useState<string | null>(null);
 
   // Password change state
   const [newPassword, setNewPassword] = useState('');
@@ -69,12 +70,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onRefresh 
     e.preventDefault();
     setIsSaving(true);
     setSuccessMsg(null);
+    setCompanyError(null);
     try {
       await DatabaseService.saveSettings(formData, currentUser?.email || 'sistema');
       setSuccessMsg('Configurações da empresa salvas com sucesso!');
       onRefresh();
     } catch (e: any) {
-      alert(e.message || 'Erro ao salvar dados da empresa.');
+      setCompanyError(e.message || 'Erro ao salvar dados da empresa.');
     } finally {
       setIsSaving(false);
     }
@@ -132,6 +134,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onRefresh 
               </span>
             )}
           </div>
+
+          {companyError && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{companyError}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSaveCompany} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">

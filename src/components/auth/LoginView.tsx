@@ -638,6 +638,27 @@ export const LoginView: React.FC = () => {
                 <ArrowRight className="w-4 h-4" />
               </button>
 
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-800"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-[#0b1222] px-2 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
+                    ou verificação direta
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Shield className="w-4 h-4 text-amber-400" />
+                <span>Entrar com Google (Identidade Verificada Master)</span>
+              </button>
+
               <div className="pt-2 text-center">
                 <button
                   type="button"
@@ -645,11 +666,11 @@ export const LoginView: React.FC = () => {
                   className="text-xs text-slate-400 hover:text-amber-400 flex items-center justify-center gap-1 mx-auto cursor-pointer"
                 >
                   <HelpCircle className="w-3.5 h-3.5" />
-                  Ajuda de recuperação do Master
+                  Procedimento seguro de recuperação Master
                 </button>
                 {showRecoveryInfo && (
-                  <p className="mt-2 text-[11px] text-slate-400 bg-slate-900 p-2.5 rounded-lg border border-slate-800 leading-relaxed">
-                    A recuperação master é realizada pelos e-mails autorizados ({MASTER_EMAILS.join(', ')}) ou autenticação direta com o Google.
+                  <p className="mt-2 text-[11px] text-slate-400 bg-slate-900 p-2.5 rounded-lg border border-slate-800 leading-relaxed text-left">
+                    Por segurança, a senha Master Owner é protegida por hash criptográfico e a redefinição exige comprovação de identidade. Caso tenha esquecido a senha, utilize o botão <strong>Entrar com Google</strong> com uma das contas autorizadas ({MASTER_EMAILS.join(', ')}). Uma vez dentro do painel, você poderá definir uma nova senha no menu de Configurações.
                   </p>
                 )}
               </div>
@@ -845,6 +866,45 @@ export const LoginView: React.FC = () => {
 
           {/* TAB 6: PRIMEIRA CONFIGURAÇÃO DO MASTER OWNER (SE NÃO CONFIGURADO) */}
           {activeTab === 'first_setup' && (
+            masterCredentialsConfigured ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-amber-400 shrink-0" />
+                    <span className="font-bold text-sm text-white">Configuração Inicial Já Concluída</span>
+                  </div>
+                  <p className="text-slate-300 leading-relaxed">
+                    A conta Master Owner já possui credenciais criptográficas ativas no ambiente de produção. A configuração inicial só pode ser realizada uma única vez.
+                  </p>
+                  <p className="text-slate-300 leading-relaxed">
+                    Para redefinir sua senha com segurança, autentique-se primeiro via Google com uma de suas contas autorizadas ({MASTER_EMAILS.join(', ')}).
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-950/40 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Shield className="w-4 h-4 text-white" />
+                  <span>Autenticar com Google para Redefinição</span>
+                </button>
+
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('master');
+                      setError(null);
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    Voltar para o Login Master
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleSetupMaster} className="space-y-4">
               <div className="p-3 bg-purple-950/20 border border-purple-500/20 rounded-xl">
                 <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">
@@ -939,6 +999,7 @@ export const LoginView: React.FC = () => {
                 </button>
               </div>
             </form>
+            )
           )}
 
           {/* Divider & Google Login option */}

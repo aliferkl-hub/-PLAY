@@ -239,6 +239,7 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
         if (statusFilter === 'aprovados' && req.approvalStatus !== 'aprovado' && req.approvalStatus !== 'auto_aprovado') return false;
         if (statusFilter === 'pendentes' && req.approvalStatus !== 'pendente_aprovacao') return false;
         if (statusFilter === 'criado' && req.integrationStatus !== 'criado') return false;
+        if (statusFilter === 'pendente_configuracao' && req.integrationStatus !== 'pendente_configuracao') return false;
         if (statusFilter === 'erro' && req.integrationStatus !== 'erro') return false;
         if (statusFilter === 'desconhecido' && req.integrationStatus !== 'resultado_desconhecido') return false;
       }
@@ -326,6 +327,13 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
           test: created,
         });
         showToast('info', `Solicitação de teste para ${created.clientName} enviada para aprovação.`);
+      } else if (created.integrationStatus === 'pendente_configuracao') {
+        setSubmissionFeedback({
+          type: 'pending',
+          message: 'Solicitação salva no sistema com status PENDENTE_CONFIGURACAO. A chave SIGMA_API_TOKEN ainda não está configurada no servidor Cloud Run.',
+          test: created,
+        });
+        showToast('info', `Solicitação de ${created.clientName} salva com status Pendente Configuração (API Token ausente).`);
       } else {
         setSubmissionFeedback({
           type: 'error',
@@ -641,6 +649,7 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
               >
                 <option value="todos">Todos os Status</option>
                 <option value="criado">Criado no Sigma</option>
+                <option value="pendente_configuracao">Pendente Configuração (API Token)</option>
                 <option value="pendentes">Aguardando Aprovação</option>
                 <option value="erro">Com Erro</option>
                 <option value="desconhecido">Resultado Desconhecido</option>
@@ -766,6 +775,11 @@ export const SigmaView: React.FC<SigmaViewProps> = ({ companies }) => {
                             {isUnknown && (
                               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 font-medium">
                                 <AlertTriangle className="w-3 h-3" /> Desconhecido
+                              </span>
+                            )}
+                            {req.integrationStatus === 'pendente_configuracao' && (
+                              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium" title={req.errorMessage}>
+                                <AlertTriangle className="w-3 h-3" /> Pendente Configuração
                               </span>
                             )}
                             {isError && (

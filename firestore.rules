@@ -29,10 +29,10 @@ service cloud.firestore {
       );
     }
 
-    // Public / bootstrap settings check
+    // Settings collection (Master Owner only for write; read allowed for bootstrap checks)
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if isMasterOwner() || !isSignedIn();
+      allow write: if isMasterOwner();
     }
 
     // Company invites (read for validation/onboarding, write for Master or onboarding consumption)
@@ -42,10 +42,12 @@ service cloud.firestore {
       allow delete: if isMasterOwner();
     }
 
-    // User credentials (read for credential check & verification, write for Master or setup)
+    // User credentials (read for credential check & verification, write for Master or onboarding invites; protected master accounts)
     match /user_credentials/{credId} {
       allow read: if true;
-      allow create, update: if isStaff() || isMasterOwner() || !isSignedIn();
+      allow create, update: if isMasterOwner() || 
+        (isStaff() && request.resource.data.role != 'MASTER_OWNER') || 
+        (!isSignedIn() && request.resource.data.role != 'MASTER_OWNER' && credId != 'alifer_qualicare_gmail_com' && credId != 'alifermadeiro_hotmail_com' && credId != 'alifergael76_gmail_com');
       allow delete: if isMasterOwner();
     }
 

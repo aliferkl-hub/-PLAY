@@ -466,6 +466,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'A senha do Master Owner deve possuir pelo menos 8 caracteres.' };
     }
 
+    // Security guard: If already configured, only an authenticated Master Owner can change/reset the password
+    const existing = masterCredentials || (await DatabaseService.getMasterOwnerCredentials());
+    if (existing && existing.isConfigured && currentUser?.role !== 'MASTER_OWNER') {
+      return {
+        success: false,
+        error: 'A senha do Master Owner já foi configurada. Por segurança, a redefinição exige verificação de identidade autenticada via Google.',
+      };
+    }
+
     const targetEmail = (email || DEFAULT_MASTER_EMAIL).trim().toLowerCase();
     try {
       const salt = generateSalt();

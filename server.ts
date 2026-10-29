@@ -10,7 +10,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { defaultSigmaService, SigmaService, SigmaApiError } from './src/server/sigma-service.ts';
 import { DatabaseService, DEFAULT_SIGMA_CONFIG, DEFAULT_MASTER_EMAIL, ALT_MASTER_EMAIL, MASTER_EMAILS } from './src/lib/db.ts';
-import { SigmaTestRequest, SigmaCompanySettings, UserRole } from './src/types/index.ts';
+import { SigmaTestRequest, SigmaCompanySettings, UserRole, MasterOwnerCredentials } from './src/types/index.ts';
+import { generateSalt, hashPassword } from './src/lib/crypto.ts';
 
 import fs from 'fs';
 
@@ -499,15 +500,21 @@ app.post('/api/sigma/tests', authMiddleware, async (req: Request, res: Response)
 
     // MODE A: Execute creation in Sigma immediately
     if (!defaultSigmaService.isConfigured()) {
-      testRecord.integrationStatus = 'erro';
-      testRecord.errorMessage = 'Integração Sigma com configuração pendente: SIGMA_API_TOKEN não configurado no servidor.';
+      testRecord.integrationStatus = 'pendente_configuracao';
+      testRecord.errorMessage = 'Solicitação salva no sistema. Integração Sigma aguardando configuração da chave SIGMA_API_TOKEN no Cloud Run.';
+      testRecord.auditHistory.push({
+        timestamp: nowIso,
+        action: 'SOLICITACAO_SALVA_PENDENTE_CONFIGURACAO',
+        user: user.email,
+        details: 'Solicitação registrada com status PENDENTE_CONFIGURACAO. A chave SIGMA_API_TOKEN não está definida no Cloud Run.',
+      });
       await DatabaseService.saveSigmaTestRequest(testRecord, user.email);
       activeProcessingKeys.delete(idempotencyKey);
 
-      return res.status(503).json({
-        error: 'missing_token',
-        message: 'A integração com o servidor Sigma está pendente de configuração pelo Master Owner.',
+      return res.status(200).json({
         data: testRecord,
+        status: 'pendente_configuracao',
+        message: 'Solicitação registrada com status PENDENTE_CONFIGURACAO. A credencial SIGMA_API_TOKEN ainda não está configurada no servidor Cloud Run.',
       });
     }
 
@@ -734,6 +741,51 @@ app.post('/api/sigma/tests/:id/reject', authMiddleware, requireMasterOwner, asyn
     data: test,
     message: 'Solicitação de teste recusada com sucesso.',
   });
+});
+
+// Authenticated Master Owner Password Redefinition
+app.post('/api/auth/master/update-password', authMiddleware, requireMasterOwner, async (req: Request, res: Response) => {
+  const { newPassword } = req.body;
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(422).json({
+      error: 'validation_error',
+      message: 'A nova senha do Master Owner deve conter pelo menos 8 caracteres.',
+    });
+  }
+
+  try {
+    const salt = generateSalt();
+    const passwordHash = await hashPassword(newPassword, salt);
+    const targetEmail = req.user!.email;
+
+    const creds: MasterOwnerCredentials = {
+      email: targetEmail,
+      passwordHash,
+      salt,
+      isConfigured: true,
+      configuredAt: new Date().toISOString(),
+      twoFactorEnabled: false,
+    };
+
+    await DatabaseService.saveMasterOwnerCredentials(creds);
+    await DatabaseService.logAudit(
+      targetEmail,
+      'SENHA_MASTER_ATUALIZADA_SERVIDOR',
+      'settings',
+      'master_owner_creds',
+      'Senha Master redefinida com autorização de identidade no servidor'
+    );
+
+    res.json({
+      success: true,
+      message: 'Senha do Master Owner atualizada com sucesso no servidor.',
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Falha ao atualizar senha do Master Owner no servidor.',
+    });
+  }
 });
 
 // 8. Reconcile Unknown Result

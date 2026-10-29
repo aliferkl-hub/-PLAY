@@ -558,7 +558,7 @@ export interface SigmaCompanySettings {
 }
 
 export type SigmaApprovalStatus = 'auto_aprovado' | 'pendente_aprovacao' | 'aprovado' | 'rejeitado';
-export type SigmaExternalStatus = 'pendente' | 'processando' | 'criado' | 'erro' | 'resultado_desconhecido';
+export type SigmaExternalStatus = 'pendente' | 'processando' | 'criado' | 'erro' | 'resultado_desconhecido' | 'pendente_configuracao';
 
 export interface SigmaTestRequest {
   id: string;

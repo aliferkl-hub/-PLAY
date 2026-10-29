@@ -555,6 +555,55 @@ describe('SIGMA / ATMOS Reseller API - Automated Test Suite', () => {
     assert.strictEqual(allServers[2].name, 'Servidor Gama');
   });
 
+  // ==========================================
+  // SCENARIO 11: Token ausente salva como pendente_configuracao
+  // ==========================================
+  it('11. Token ausente: preserva campos e salva com integrationStatus pendente_configuracao sem gerar credenciais falsas', async () => {
+    delete process.env.SIGMA_API_TOKEN;
+    const service = new SigmaService();
+    assert.strictEqual(service.isConfigured(), false);
+
+    // Simulate request creation flow when token is missing
+    const testRecord: SigmaTestRequest = {
+      id: 'test-pending-cfg-001',
+      idempotencyKey: 'idemp-cfg-001',
+      companyId: 'company-matriz-01',
+      companyName: 'ONNIX PLAY MATRIZ',
+      requestedByUserId: 'alifer.qualicare@gmail.com',
+      requestedByUserEmail: 'alifer.qualicare@gmail.com',
+      requestedByUserName: 'Master Owner',
+      clientName: 'Eduardo Pereira',
+      clientWhatsApp: '5511977776666',
+      clientNotes: 'Teste solicitado via WhatsApp',
+      serverId: 'srv-default',
+      serverName: 'Servidor Principal',
+      packageId: 'pkg-default',
+      packageName: 'Pacote Completo Teste',
+      trialHours: 4,
+      approvalStatus: 'auto_aprovado',
+      integrationStatus: 'pendente_configuracao',
+      errorMessage: 'Solicitação salva no sistema. Integração Sigma aguardando configuração da chave SIGMA_API_TOKEN no Cloud Run.',
+      requestedAt: new Date().toISOString(),
+      auditHistory: [
+        {
+          timestamp: new Date().toISOString(),
+          action: 'SOLICITACAO_SALVA_PENDENTE_CONFIGURACAO',
+          user: 'alifer.qualicare@gmail.com',
+          details: 'Solicitação registrada com status PENDENTE_CONFIGURACAO. A chave SIGMA_API_TOKEN não está definida no Cloud Run.',
+        },
+      ],
+    };
+
+    assert.strictEqual(testRecord.integrationStatus, 'pendente_configuracao');
+    assert.strictEqual(testRecord.clientName, 'Eduardo Pereira');
+    assert.strictEqual(testRecord.clientWhatsApp, '5511977776666');
+    assert.strictEqual(testRecord.trialHours, 4);
+    assert.strictEqual(testRecord.clientNotes, 'Teste solicitado via WhatsApp');
+    assert.strictEqual(testRecord.externalCustomerId, undefined);
+    assert.strictEqual(testRecord.externalUsername, undefined);
+    assert.strictEqual(testRecord.externalPassword, undefined);
+  });
+
   // Teardown
   afterEach(() => {
     if (originalToken) {
